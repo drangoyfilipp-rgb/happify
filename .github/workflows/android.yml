@@ -46,7 +46,7 @@ jobs:
 
       - name: Signing
         env:
-          SIGNING_PASS: ${{ secrets.HAPPIFY_SIGNING_PASS }}
+          SIGNING_PASS: ${{ secrets.HAPPIFY_SIGNING_PASS || secrets.HAPPIFY_SIGNING_PASSE }}
         run: |
           set -eu
           if [ -z "$SIGNING_PASS" ]; then
