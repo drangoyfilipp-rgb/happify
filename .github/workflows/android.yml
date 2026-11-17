@@ -63,7 +63,7 @@ jobs:
         run: |
           flutter build apk --release --target lib/main_prod.dart \
             --target-platform android-arm,android-arm64 \
-            --build-number ${{ github.run_number }}
+            --build-number $((${{ github.run_number }} + 100))
           ls -la build/app/outputs/flutter-apk/
 
       - name: Release
