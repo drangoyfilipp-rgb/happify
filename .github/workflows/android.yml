@@ -1,0 +1,76 @@
+name: Android APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.5'
+          channel: stable
+          cache: true
+
+      - name: Pub get, codegen, translations
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+          dart run slang
+
+      - name: Analyze and test
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-dev
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test
+
+      - name: Core library
+        run: make android-libs CHANNEL=prod
+
+      - name: Signing
+        env:
+          SIGNING_PASS: ${{ secrets.HAPPIFY_SIGNING_PASS }}
+        run: |
+          set -eu
+          if [ -z "$SIGNING_PASS" ]; then
+            echo "::error::Secret HAPPIFY_SIGNING_PASS is missing (Settings > Secrets and variables > Actions > Repository secrets)"
+            exit 1
+          fi
+          SIGNING_PASS="${SIGNING_PASS#HAPPIFY_SIGNING_PASS=}"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/sign"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in android/signing.tgz.enc -pass env:SIGNING_PASS | tar -xz -C "$RUNNER_TEMP/sign"
+          { printf 'storeFile=%s\n' "$RUNNER_TEMP/sign/happ.jks"; cat "$RUNNER_TEMP/sign/signing.properties"; } > android/key.properties
+
+      - name: Build APK
+        run: |
+          flutter build apk --release --target lib/main_prod.dart \
+            --target-platform android-arm,android-arm64 \
+            --build-number ${{ github.run_number }}
+          ls -la build/app/outputs/flutter-apk/
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Happify build ${{ github.run_number }}
+          files: |
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            build/app/outputs/flutter-apk/app-release.apk
